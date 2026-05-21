@@ -2,6 +2,16 @@
 
 自动化完成 ChatGPT Plus 账号注册、支付、授权、Session 导出的全链路工具。
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+
+## 重要说明
+
+- 本项目仅用于自动化技术学习与工程实践演示。
+- 使用前请自行确认目标平台条款、当地法律与数据合规要求。
+- 仓库默认不包含真实账号、密钥、卡密、手机号等敏感数据。
+
 ## 功能概览
 
 | 编号 | 功能 | 说明 |
@@ -53,6 +63,13 @@ cp config.example.yaml config.yaml
 # 2) 按需填写 .env 中的邮箱源/代理/API key
 # 3) 准备 data/ 下的账号池、代理池、手机号池、卡池示例文件
 ```
+
+## 文档导航
+
+- 快速上手：`START_HERE_CN.txt`
+- 配置清单：`.env.example`、`config.example.yaml`
+- 安全策略：`SECURITY.md`
+- 贡献指南：`CONTRIBUTING.md`
 
 ## 目录结构
 
@@ -395,4 +412,4 @@ ip:port
 
 ## 许可证
 
-仅供学习研究使用。
+本项目使用 [MIT License](./LICENSE)。
