@@ -71,6 +71,12 @@ cp config.example.yaml config.yaml
 - 安全策略：`SECURITY.md`
 - 贡献指南：`CONTRIBUTING.md`
 
+## 交流群
+
+- QQ 群号：`1098765842`
+
+![注册机交流群二维码](docs/images/qq-group-1098765842.jpg)
+
 ## 目录结构
 
 ```
