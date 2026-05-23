@@ -74,9 +74,9 @@ cp config.example.yaml config.yaml
 
 ## 交流群
 
-- QQ 群号：`1098765842`
+- QQ 群号：`1104779544`
 
-![注册机交流群二维码](docs/images/qq-group-1098765842.jpg)
+![注册机交流群二维码](docs/images/qq-group-1104779544.jpg)
 
 ## 目录结构
 
