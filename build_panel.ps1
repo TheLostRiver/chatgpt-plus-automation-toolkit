@@ -23,20 +23,65 @@ $env:TK_LIBRARY = Join-Path $PythonBasePrefix "tcl\tk8.6"
 Write-Host "[build] Tcl    : $env:TCL_LIBRARY"
 Write-Host "[build] Tk     : $env:TK_LIBRARY"
 
-$DistRoot = Join-Path $ProjectRoot "dist\ChatGPTAssistantPanel"
-$RuntimeStateDirs = @("data", "output", "profiles", "logs")
+$ExistingDistCandidates = @()
+$LegacyDistRoot = Join-Path $ProjectRoot "dist\ChatGPTAssistantPanel"
+if (Test-Path $LegacyDistRoot) {
+    $ExistingDistCandidates += $LegacyDistRoot
+}
+Get-ChildItem -LiteralPath $ProjectRoot -Directory -Filter "dist_build_*" -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending |
+    ForEach-Object {
+        $candidate = Join-Path $_.FullName "ChatGPTAssistantPanel"
+        if (Test-Path $candidate) {
+            $ExistingDistCandidates += $candidate
+        }
+    }
+
+$ExistingDistRoot = $null
+foreach ($candidate in $ExistingDistCandidates) {
+    $dataDir = Join-Path $candidate "data"
+    $hasDataFiles = (Test-Path $dataDir) -and (Get-ChildItem -LiteralPath $dataDir -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1)
+    if ($hasDataFiles) {
+        $ExistingDistRoot = $candidate
+        break
+    }
+}
+if (-not $ExistingDistRoot) {
+    foreach ($candidate in $ExistingDistCandidates) {
+        $profilesDir = Join-Path $candidate "profiles"
+        $hasProfileFiles = (Test-Path $profilesDir) -and (Get-ChildItem -LiteralPath $profilesDir -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1)
+        if ($hasProfileFiles) {
+            $ExistingDistRoot = $candidate
+            break
+        }
+    }
+}
+if (-not $ExistingDistRoot -and $ExistingDistCandidates.Count -gt 0) {
+    $ExistingDistRoot = $ExistingDistCandidates[0]
+}
+
+$DistOutputRoot = Join-Path $ProjectRoot "dist"
+$DistRoot = Join-Path $DistOutputRoot "ChatGPTAssistantPanel"
+$RuntimeStateDirs = @("data")
 $RuntimeStateFiles = @(".env", "config.yaml")
 $RuntimeBackupRoot = Join-Path $ProjectRoot "build\_dist_runtime_backup"
 
 # Preserve runtime state in existing dist so rebuild does not re-import consumed pools.
 if (Test-Path $RuntimeBackupRoot) {
-    Remove-Item -LiteralPath $RuntimeBackupRoot -Recurse -Force
+    try {
+        Remove-Item -LiteralPath $RuntimeBackupRoot -Recurse -Force -ErrorAction Stop
+    } catch {
+        $suffix = Get-Date -Format "yyyyMMdd_HHmmss"
+        $RuntimeBackupRoot = Join-Path $ProjectRoot ("build\_dist_runtime_backup_" + $suffix)
+        Write-Warning "Old runtime backup is locked, switch to new backup path: $RuntimeBackupRoot"
+    }
 }
 New-Item -ItemType Directory -Path $RuntimeBackupRoot -Force | Out-Null
 
-if (Test-Path $DistRoot) {
+if ($ExistingDistRoot -and (Test-Path $ExistingDistRoot)) {
+    Write-Host "[build] Runtime backup source: $ExistingDistRoot"
     foreach ($dir in $RuntimeStateDirs) {
-        $src = Join-Path $DistRoot $dir
+        $src = Join-Path $ExistingDistRoot $dir
         $dst = Join-Path $RuntimeBackupRoot $dir
         if (Test-Path $src) {
             Write-Host "[build] Backup runtime dir $dir"
@@ -44,7 +89,7 @@ if (Test-Path $DistRoot) {
         }
     }
     foreach ($file in $RuntimeStateFiles) {
-        $src = Join-Path $DistRoot $file
+        $src = Join-Path $ExistingDistRoot $file
         $dst = Join-Path $RuntimeBackupRoot $file
         if (Test-Path $src) {
             Write-Host "[build] Backup runtime file $file"
@@ -54,7 +99,7 @@ if (Test-Path $DistRoot) {
 }
 
 & $Python -m py_compile control_panel_app.py panel_runner.py control_panel\file_registry.py control_panel\text_pool_service.py control_panel\env_service.py
-& $Python -m PyInstaller ChatGPTAssistantPanel.spec --noconfirm --clean
+& $Python -m PyInstaller ChatGPTAssistantPanel.spec --noconfirm --clean --distpath $DistOutputRoot
 if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller failed with exit code $LASTEXITCODE"
 }
@@ -63,7 +108,7 @@ if (-not (Test-Path $DistRoot)) {
     throw "PyInstaller output not found: $DistRoot"
 }
 
-$CopyDirs = @("data", "output", "profiles", "logs")
+$CopyDirs = @("data")
 foreach ($dir in $CopyDirs) {
     $src = Join-Path $ProjectRoot $dir
     $dst = Join-Path $DistRoot $dir
@@ -75,8 +120,6 @@ foreach ($dir in $CopyDirs) {
     if (Test-Path $src) {
         Write-Host "[build] Copy dir $dir"
         Copy-Item -LiteralPath $src -Destination $dst -Recurse -Force
-    } elseif ($dir -eq "logs") {
-        New-Item -ItemType Directory -Path $dst -Force | Out-Null
     }
 }
 
@@ -112,16 +155,31 @@ foreach ($file in $RuntimeStateFiles) {
     }
 }
 
-$PlaywrightSource = Join-Path $env:LOCALAPPDATA "ms-playwright"
-$PlaywrightTarget = Join-Path $DistRoot "_internal\playwright\driver\package\.local-browsers"
-if (Test-Path $PlaywrightSource) {
-    Write-Host "[build] Copy Playwright browsers"
-    New-Item -ItemType Directory -Path $PlaywrightTarget -Force | Out-Null
-    Get-ChildItem -LiteralPath $PlaywrightSource -Directory | ForEach-Object {
-        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $PlaywrightTarget $_.Name) -Recurse -Force
+$buildIncludeEnv = [string]$env:BUILD_INCLUDE_PLAYWRIGHT_BROWSERS
+$IncludePlaywrightBrowsers = ($buildIncludeEnv.Trim().ToLower() -in @("1", "true", "yes"))
+if ($IncludePlaywrightBrowsers) {
+    $PlaywrightSource = Join-Path $env:LOCALAPPDATA "ms-playwright"
+    $PlaywrightTarget = Join-Path $DistRoot "_internal\playwright\driver\package\.local-browsers"
+    if (Test-Path $PlaywrightSource) {
+        Write-Host "[build] Copy Playwright browsers"
+        New-Item -ItemType Directory -Path $PlaywrightTarget -Force | Out-Null
+        Get-ChildItem -LiteralPath $PlaywrightSource -Directory | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $PlaywrightTarget $_.Name) -Recurse -Force
+        }
+    } else {
+        Write-Warning "Playwright browsers not found at $PlaywrightSource. Run: .\.venv\Scripts\python -m playwright install chromium"
     }
 } else {
-    Write-Warning "Playwright browsers not found at $PlaywrightSource. Run: .\.venv\Scripts\python -m playwright install chromium"
+    Write-Host "[build] Skip Playwright browser cache copy (minimal package mode)"
+}
+
+# Minimal package: do not bundle runtime artifacts that can grow very large.
+foreach ($name in @("profiles", "output", "logs")) {
+    $path = Join-Path $DistRoot $name
+    if (Test-Path $path) {
+        Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "[build] Remove runtime dir $name (minimal package mode)"
+    }
 }
 
 Write-Host "[build] Done: $DistRoot"

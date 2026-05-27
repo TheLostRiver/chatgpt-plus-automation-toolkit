@@ -14,6 +14,8 @@ from .utils import LEGACY_OUTPUT_FILES, load_env, migrate_output_file, resolve_p
 EXTERNAL_MAIL_FETCH_MODE_ENV = "MAIL_FETCH_SOURCE"
 EXTERNAL_MAIL_FETCH_MODE_IMAP163 = {"desktop_imap163", "external_imap163", "imap163"}
 EXTERNAL_IMAP163_DIR_ENV = "EXTERNAL_IMAP163_DIR"
+STRICT_EMAIL_RE = re.compile(r"(?i)^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,63}$")
+EMAIL_IN_TEXT_RE = re.compile(r"(?i)(?<![A-Z0-9._%+-])([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,63})(?![A-Z0-9._%+-])")
 
 
 @dataclass(frozen=True)
@@ -69,12 +71,28 @@ def _generate_external_imap163_account() -> MailAccount | None:
     return MailAccount(email=email, mail_url="imap163", raw=raw)
 
 
+def _extract_email_from_line(line: str) -> str | None:
+    text = (line or "").strip()
+    if not text:
+        return None
+
+    if "----" in text:
+        first = text.split("----", 1)[0].strip()
+        first = re.sub(r"^(账号|账户|account|email|邮箱)\s*[:：]\s*", "", first, flags=re.IGNORECASE)
+        if STRICT_EMAIL_RE.match(first):
+            return first
+
+    match = EMAIL_IN_TEXT_RE.search(text)
+    if not match:
+        return None
+    return match.group(1)
+
+
 def parse_mail_line(line: str) -> MailAccount | None:
     line = line.strip()
-    email_match = re.search(r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}", line)
-    if not email_match:
+    email = _extract_email_from_line(line)
+    if not email:
         return None
-    email = email_match.group(0)
     url_match = re.search(r"https?://\S+", line)
     mail_url = url_match.group(0).rstrip("，,。;；") if url_match else None
     parts = [part.strip() for part in line.split("----")]

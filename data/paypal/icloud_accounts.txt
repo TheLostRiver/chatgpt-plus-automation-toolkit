@@ -1,2 +1,1 @@
-﻿# format: email----query_code_link
-example@icloud.com----https://example.com/query_code?token=change_me
+# 格式：邮箱----查询码

@@ -2,7 +2,6 @@
 .env
 .env.*
 !.env.example
-config.local.yaml
 
 # Python cache and build artifacts
 __pycache__/
@@ -24,6 +23,7 @@ env/
 output/
 输出/
 profiles/
+data/
 账号输入/
 浏览器插件版 可用于替换流程一/profiles/
 浏览器插件版 可用于替换流程一/worker_profiles/
@@ -43,17 +43,3 @@ tools/notification-bridge/app/build/
 Thumbs.db
 .vscode/
 .idea/
-
-# Local runtime config
-config.yaml
-
-# Sensitive pool/runtime data under data/
-data/**/mail_pool.txt
-data/**/accounts.private.txt
-data/**/phones.private.txt
-data/**/cards.private.txt
-data/**/tokens*.json
-data/**/session*.json*
-data/**/account-rt*.txt
-data/paypal/card_codes_used.txt
-data/paypal/card_codes_failed.txt

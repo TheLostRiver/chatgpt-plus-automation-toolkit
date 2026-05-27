@@ -392,10 +392,10 @@ class ControlPanelApp(tk.Tk):
         self._add_nav(nav, "运行流程", lambda: self.show_page("run"))
         self._add_nav(nav, "API Key / 常用配置", lambda: self.show_page("env"))
         resource_groups = [
-            ("代理池", ["proxy_default", "proxy_jp", "proxy_us"]),
+            ("代理池", ["proxy_default", "proxy_jp", "proxy_us", "proxy_de"]),
             ("卡密池", ["paypal_card_codes", "paypal_card_codes_used", "paypal_card_codes_failed"]),
             ("虚拟卡池", ["paypal_cards"]),
-            ("手机号池", ["paypal_phones"]),
+            ("手机号池", ["paypal_phones", "auth_phones"]),
             ("邮箱池", ["hotmail_accounts", "hotmail_mail_pool", "icloud_accounts", "icloud_mail_pool", "mail_accounts", "mail_pool"]),
             ("长链接池", ["paypal_links"]),
             ("授权账号/输出", ["paypal_pending_auth", "paypal_authorized_rt", "paypal_authorized_sub"]),

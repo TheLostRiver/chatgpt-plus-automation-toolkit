@@ -32,6 +32,7 @@ import webbrowser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import requests
 
 import state_db
 from error_classifier import classify_error, classify_exit
@@ -2527,6 +2528,20 @@ def hero_sms_enabled(args) -> bool:
     return bool(str(getattr(args, "hero_sms_api_key", "") or "").strip() and str(getattr(args, "hero_sms_country", "") or "").strip())
 
 
+def local_auth_phone_pool_enabled(args) -> bool:
+    return bool(
+        str(getattr(args, "auth_phone_number", "") or "").strip()
+        and str(getattr(args, "auth_phone_api_url", "") or "").strip()
+    )
+
+
+def sms_provider_enabled(args) -> bool:
+    return bool(
+        str(getattr(args, "sms_api_key", "") or getattr(args, "hero_sms_api_key", "") or "").strip()
+        and str(getattr(args, "sms_country", "") or getattr(args, "hero_sms_country", "") or "").strip()
+    )
+
+
 def sms_provider_name(args) -> str:
     name = str(getattr(args, "sms_provider", "") or "").strip().lower()
     if not name and hero_sms_enabled(args):
@@ -2541,10 +2556,7 @@ def sms_provider_name(args) -> str:
 
 
 def sms_enabled(args) -> bool:
-    return bool(
-        str(getattr(args, "sms_api_key", "") or getattr(args, "hero_sms_api_key", "") or "").strip()
-        and str(getattr(args, "sms_country", "") or getattr(args, "hero_sms_country", "") or "").strip()
-    )
+    return local_auth_phone_pool_enabled(args) or sms_provider_enabled(args)
 
 
 def selected_sms_country(args) -> PhoneCountry:
@@ -2825,6 +2837,66 @@ def handle_phone_required_with_hero_sms(page, args, remaining_seconds) -> bool:
 def handle_phone_required_with_sms_provider(page, args, remaining_seconds) -> bool:
     if not sms_enabled(args):
         return False
+    if local_auth_phone_pool_enabled(args):
+        phone_number = str(getattr(args, "auth_phone_number", "") or "").strip()
+        sms_api_url = str(getattr(args, "auth_phone_api_url", "") or "").strip()
+        country = selected_sms_country(args)
+        poll_interval = float(getattr(args, "auth_phone_poll_interval", 5.0) or 5.0)
+        timeout = int(getattr(args, "auth_phone_timeout", 120) or 120)
+        try:
+            print(f"[SMS][POOL] 使用授权手机号池号码: {phone_number}", flush=True)
+            fill_phone_and_wait_sms_page(page, phone_number, country)
+            deadline = time.time() + min(max(30, int(remaining_seconds())), timeout + 10)
+            wait_round = 0
+            while time.time() < deadline:
+                wait_round += 1
+                if page_looks_like_sms_verification(page):
+                    print("[SMS][POOL] 页面已进入短信验证码阶段，开始从手机号池取码 URL 拉取验证码", flush=True)
+                    break
+                if capture_code_from_url(page.url):
+                    print("[SMS][POOL] 页面已直接产生 OAuth 回调，无需短信验证码", flush=True)
+                    return True
+                if wait_round == 1 or wait_round % 5 == 0:
+                    print(f"[SMS][POOL] 等待短信验证码输入页出现... 当前 URL: {page.url}", flush=True)
+                time.sleep(1)
+
+            started = time.time()
+            code = ""
+            while time.time() - started < timeout:
+                try:
+                    resp = requests.get(sms_api_url, timeout=10)
+                    text = (resp.text or "").strip()
+                    parts = text.split("|", 2)
+                    status = parts[0].lower() if parts else ""
+                    content = parts[1] if len(parts) > 1 else text
+                    if status != "no" and content and content != "暂无验证码":
+                        m = re.search(r"\b(\d{4,6})\b", content)
+                        if m:
+                            code = m.group(1)
+                            break
+                except Exception:
+                    pass
+                time.sleep(max(1.0, poll_interval))
+            if not code:
+                raise TimeoutError(f"手机号池验证码超时 ({timeout}s)")
+
+            fill_sms_code(page, code)
+            status, detail = wait_for_code_submit_result(page, timeout=12)
+            if status == "invalid":
+                raise RuntimeError(f"短信验证码无效或过期: {detail}")
+            if status == "pending":
+                print("[SMS][POOL] 验证码已提交，页面暂未明确推进，继续观察授权流程", flush=True)
+            else:
+                print("[SMS][POOL] 验证码提交成功，页面已推进", flush=True)
+            return True
+        except Exception as exc:
+            print(f"[SMS][POOL] 授权手机号池验证失败: {exc}", flush=True)
+            if not sms_provider_enabled(args):
+                raise
+
+    if not sms_provider_enabled(args):
+        raise RuntimeError("未配置接码平台参数，且授权手机号池验证失败")
+
     provider_name = sms_provider_name(args) or "herosms"
     if provider_name in {"fivesim", "5sim"}:
         provider_name = "fivesim"
@@ -5945,6 +6017,10 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--sms-operator", default="", help="接码平台运营商/服务商；留空为任何")
     parser.add_argument("--sms-poll-interval", type=float, default=0.0, help="短信验证码轮询间隔秒数")
     parser.add_argument("--sms-max-attempts", type=int, default=0, help="短信验证码最大轮询次数")
+    parser.add_argument("--auth-phone-number", default="", help="授权手机号池号码（格式与 PayPal 手机号池一致）")
+    parser.add_argument("--auth-phone-api-url", default="", help="授权手机号池取码 URL（返回 no|... 或 含验证码文本）")
+    parser.add_argument("--auth-phone-poll-interval", type=float, default=5.0, help="授权手机号池取码轮询间隔秒数")
+    parser.add_argument("--auth-phone-timeout", type=int, default=120, help="授权手机号池取码超时秒数")
     parser.add_argument("--fivesim-country-slug", default="", help="5sim 国家 slug，如 indonesia / philippines；provider=fivesim 时必填")
     parser.add_argument("--hero-sms-api-key", default="", help="HeroSMS API Key；传入后手机号必填页会自动接码")
     parser.add_argument("--hero-sms-service", default="dr", help="HeroSMS 服务代码，默认 dr")

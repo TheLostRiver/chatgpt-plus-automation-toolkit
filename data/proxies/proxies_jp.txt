@@ -1,2 +1,1 @@
-﻿# one proxy per line
-http://user:pass@jp-proxy.example.com:8080
+http://hpnm1178546-region-JP:mwz6vsx1@us.cliproxy.io:3010

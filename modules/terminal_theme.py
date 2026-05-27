@@ -138,8 +138,35 @@ def style_timed_log(message: str) -> str:
 
 
 def themed_print(*args: Any, **kwargs: Any) -> None:
+    def _safe_original_print(*p_args: Any, **p_kwargs: Any) -> None:
+        try:
+            _ORIGINAL_PRINT(*p_args, **p_kwargs)
+            return
+        except (OSError, ValueError):
+            pass
+        except Exception:
+            return
+
+        fallback_candidates = [
+            p_kwargs.get("file"),
+            sys.__stderr__,
+            sys.__stdout__,
+            sys.stderr,
+            sys.stdout,
+        ]
+        for stream in fallback_candidates:
+            if stream is None or not hasattr(stream, "write"):
+                continue
+            try:
+                new_kwargs = dict(p_kwargs)
+                new_kwargs["file"] = stream
+                _ORIGINAL_PRINT(*p_args, **new_kwargs)
+                return
+            except Exception:
+                continue
+
     if kwargs.pop("_unstyled", False):
-        return _ORIGINAL_PRINT(*args, **kwargs)
+        return _safe_original_print(*args, **kwargs)
     file = kwargs.get("file")
     if args and isinstance(args[0], str):
         sep = kwargs.get("sep", " ")
@@ -154,8 +181,8 @@ def themed_print(*args: Any, **kwargs: Any) -> None:
             text = f"{paint('[FAIL]', RED, bold=True)} {styled}" if not text.startswith("[") else styled
         else:
             text = style_message(text, add_marker=False)
-        return _ORIGINAL_PRINT(text, end=end, file=file or sys.stdout, flush=kwargs.get("flush", False))
-    return _ORIGINAL_PRINT(*args, **kwargs)
+        return _safe_original_print(text, end=end, file=file or sys.stdout, flush=kwargs.get("flush", False))
+    return _safe_original_print(*args, **kwargs)
 
 
 def install_print_theme() -> None:
